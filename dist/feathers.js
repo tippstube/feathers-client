@@ -668,8 +668,9 @@ function isUndefined(arg) {
 }
 
 },{}],4:[function(require,module,exports){
-module.exports = require('./lib/client');
-},{"./lib/client":6}],5:[function(require,module,exports){
+module.exports = require('./lib/client/index');
+
+},{"./lib/client/index":6}],5:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -752,6 +753,10 @@ exports.default = function () {
           endPoint = config.localEndpoint;
         } else if (options.type === 'token') {
           endPoint = config.tokenEndpoint;
+        } else if (options.type === 'facebook') {
+          endPoint = config.facebookEndpoint;
+        } else if (options.type === 'google') {
+          endPoint = config.googleEndpoint;
         } else {
           throw new Error('Unsupported authentication \'type\': ' + options.type);
         }
@@ -789,7 +794,7 @@ exports.default = function () {
       });
     };
 
-    // Set up hook that adds adds token and user to params so that
+    // Set up hook that adds token and user to params so that
     // it they can be accessed by client side hooks and services
     app.mixins.push(function (service) {
       if (typeof service.before !== 'function' || typeof service.after !== 'function') {
@@ -826,7 +831,9 @@ var defaults = {
   cookie: 'feathers-jwt',
   tokenKey: 'feathers-jwt',
   localEndpoint: '/auth/local',
-  tokenEndpoint: '/auth/token'
+  tokenEndpoint: '/auth/token',
+  facebookEndpoint: '/auth/facebook',
+  googleEndpoint: '/auth/google'
 };
 
 module.exports = exports['default'];
@@ -954,10 +961,10 @@ function getStorage(storage) {
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
+
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
+
 exports.default = getArguments;
-
-function _typeof(obj) { return obj && typeof Symbol !== "undefined" && obj.constructor === Symbol ? "symbol" : typeof obj; }
-
 var noop = exports.noop = function noop() {};
 var getCallback = function getCallback(args) {
   var last = args[args.length - 1];
@@ -1035,6 +1042,7 @@ var converters = exports.converters = {
     return [data, params, callback];
   },
 
+
   update: updateOrPatch('update'),
 
   patch: updateOrPatch('patch'),
@@ -1070,15 +1078,17 @@ exports.default = {
   getArguments: _arguments2.default,
   stripSlashes: _utils.stripSlashes,
   each: _utils.each,
-  hooks: _hooks2.default
+  hooks: _hooks2.default,
+  matcher: _utils.matcher,
+  sorter: _utils.sorter
 };
 module.exports = exports['default'];
 },{"./arguments":8,"./hooks":10,"./utils":11}],10:[function(require,module,exports){
 'use strict';
 
-var _utils = require('./utils');
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
 
-function _typeof(obj) { return obj && typeof Symbol !== "undefined" && obj.constructor === Symbol ? "symbol" : typeof obj; }
+var _utils = require('./utils');
 
 function getOrRemove(args) {
   return {
@@ -1163,10 +1173,17 @@ exports.convertHookData = function (obj) {
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
+
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
+
 exports.stripSlashes = stripSlashes;
 exports.each = each;
+exports.matcher = matcher;
+exports.sorter = sorter;
 
-function _typeof(obj) { return obj && typeof Symbol !== "undefined" && obj.constructor === Symbol ? "symbol" : typeof obj; }
+function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; } return arr2; } else { return Array.from(arr); } }
 
 function stripSlashes(name) {
   return name.replace(/^(\/*)|(\/*)$/g, '');
@@ -1180,6 +1197,147 @@ function each(obj, callback) {
       return callback(obj[key], key);
     });
   }
+}
+
+var _ = exports._ = {
+  some: function some(value, callback) {
+    return Object.keys(value).map(function (key) {
+      return [value[key], key];
+    }).some(function (current) {
+      return callback.apply(undefined, _toConsumableArray(current));
+    });
+  },
+  every: function every(value, callback) {
+    return Object.keys(value).map(function (key) {
+      return [value[key], key];
+    }).every(function (current) {
+      return callback.apply(undefined, _toConsumableArray(current));
+    });
+  },
+  isMatch: function isMatch(obj, item) {
+    return Object.keys(item).every(function (key) {
+      return obj[key] === item[key];
+    });
+  },
+  omit: function omit(obj) {
+    var result = _extends({}, obj);
+
+    for (var _len = arguments.length, keys = Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+      keys[_key - 1] = arguments[_key];
+    }
+
+    var _iteratorNormalCompletion = true;
+    var _didIteratorError = false;
+    var _iteratorError = undefined;
+
+    try {
+      for (var _iterator = keys[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+        var key = _step.value;
+
+        delete result[key];
+      }
+    } catch (err) {
+      _didIteratorError = true;
+      _iteratorError = err;
+    } finally {
+      try {
+        if (!_iteratorNormalCompletion && _iterator.return) {
+          _iterator.return();
+        }
+      } finally {
+        if (_didIteratorError) {
+          throw _iteratorError;
+        }
+      }
+    }
+
+    return result;
+  }
+};
+
+var specialFilters = exports.specialFilters = {
+  $in: function $in(key, ins) {
+    return function (current) {
+      return ins.indexOf(current[key]) !== -1;
+    };
+  },
+  $nin: function $nin(key, nins) {
+    return function (current) {
+      return nins.indexOf(current[key]) === -1;
+    };
+  },
+  $lt: function $lt(key, value) {
+    return function (current) {
+      return current[key] < value;
+    };
+  },
+  $lte: function $lte(key, value) {
+    return function (current) {
+      return current[key] <= value;
+    };
+  },
+  $gt: function $gt(key, value) {
+    return function (current) {
+      return current[key] > value;
+    };
+  },
+  $gte: function $gte(key, value) {
+    return function (current) {
+      return current[key] >= value;
+    };
+  },
+  $ne: function $ne(key, value) {
+    return function (current) {
+      return current[key] !== value;
+    };
+  }
+};
+
+function matcher(originalQuery) {
+  var query = _.omit(originalQuery, '$limit', '$skip', '$sort');
+
+  return function (item) {
+    if (query.$or && _.some(query.$or, function (or) {
+      return _.isMatch(item, or);
+    })) {
+      return true;
+    }
+
+    return _.every(query, function (value, key) {
+      if ((typeof value === 'undefined' ? 'undefined' : _typeof(value)) === 'object') {
+        return _.every(value, function (target, filterType) {
+          if (specialFilters[filterType]) {
+            var filter = specialFilters[filterType](key, target);
+            return filter(item);
+          }
+
+          return false;
+        });
+      } else if (typeof item[key] !== 'undefined') {
+        return item[key] === query[key];
+      }
+
+      return false;
+    });
+  };
+}
+
+function sorter($sort) {
+  return function (first, second) {
+    var comparator = 0;
+    each($sort, function (modifier, key) {
+      modifier = parseInt(modifier, 10);
+
+      if (first[key] < second[key]) {
+        comparator -= 1 * modifier;
+      }
+
+      if (first[key] > second[key]) {
+        comparator += 1 * modifier;
+      }
+    });
+    return comparator;
+  };
 }
 },{}],12:[function(require,module,exports){
 'use strict';
@@ -1500,6 +1658,8 @@ Object.defineProperty(exports, "__esModule", {
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
 
 exports.lowerCase = lowerCase;
+exports.removeQuery = removeQuery;
+exports.pluckQuery = pluckQuery;
 exports.remove = remove;
 exports.pluck = pluck;
 exports.disable = disable;
@@ -1520,7 +1680,13 @@ function lowerCase() {
       for (var _iterator = fields[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
         var field = _step.value;
 
-        data[field] = data[field].toLowerCase();
+        if (data[field]) {
+          if (typeof data[field] !== 'string') {
+            throw new errors.BadRequest('Expected string');
+          } else {
+            data[field] = data[field].toLowerCase();
+          }
+        }
       }
     } catch (err) {
       _didIteratorError = true;
@@ -1562,12 +1728,12 @@ function lowerCase() {
   };
 }
 
-function remove() {
+function removeQuery() {
   for (var _len2 = arguments.length, fields = Array(_len2), _key2 = 0; _key2 < _len2; _key2++) {
     fields[_key2] = arguments[_key2];
   }
 
-  var removeFields = function removeFields(data) {
+  var removeQueries = function removeQueries(data) {
     var _iteratorNormalCompletion2 = true;
     var _didIteratorError2 = false;
     var _iteratorError2 = undefined;
@@ -1590,6 +1756,120 @@ function remove() {
       } finally {
         if (_didIteratorError2) {
           throw _iteratorError2;
+        }
+      }
+    }
+  };
+
+  var callback = typeof fields[fields.length - 1] === 'function' ? fields.pop() : function () {
+    return true;
+  };
+
+  return function (hook) {
+    if (hook.type === 'after') {
+      throw new errors.GeneralError('Provider \'' + hook.params.provider + '\' can not remove query params on after hook.');
+    }
+    var result = hook.params.query;
+    var next = function next(condition) {
+      if (result && condition) {
+        removeQueries(result);
+      }
+      return hook;
+    };
+
+    var check = callback(hook);
+
+    return check && typeof check.then === 'function' ? check.then(next) : next(check);
+  };
+}
+
+function pluckQuery() {
+  for (var _len3 = arguments.length, fields = Array(_len3), _key3 = 0; _key3 < _len3; _key3++) {
+    fields[_key3] = arguments[_key3];
+  }
+
+  var pluckQueries = function pluckQueries(data) {
+    // admin, name
+    var _iteratorNormalCompletion3 = true;
+    var _didIteratorError3 = false;
+    var _iteratorError3 = undefined;
+
+    try {
+      for (var _iterator3 = Object.keys(data)[Symbol.iterator](), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
+        var key = _step3.value;
+
+        if (fields.indexOf(key) === -1) {
+          console.log(key);
+          data[key] = undefined;
+          delete data[key];
+        }
+      }
+    } catch (err) {
+      _didIteratorError3 = true;
+      _iteratorError3 = err;
+    } finally {
+      try {
+        if (!_iteratorNormalCompletion3 && _iterator3.return) {
+          _iterator3.return();
+        }
+      } finally {
+        if (_didIteratorError3) {
+          throw _iteratorError3;
+        }
+      }
+    }
+  };
+
+  var callback = typeof fields[fields.length - 1] === 'function' ? fields.pop() : function () {
+    return true;
+  };
+
+  return function (hook) {
+    if (hook.type === 'after') {
+      throw new errors.GeneralError('Provider \'' + hook.params.provider + '\' can not pluck query params on after hook.');
+    }
+    var result = hook.params.query;
+    var next = function next(condition) {
+      if (result && condition) {
+        pluckQueries(result);
+      }
+      return hook;
+    };
+
+    var check = callback(hook);
+
+    return check && typeof check.then === 'function' ? check.then(next) : next(check);
+  };
+}
+
+function remove() {
+  for (var _len4 = arguments.length, fields = Array(_len4), _key4 = 0; _key4 < _len4; _key4++) {
+    fields[_key4] = arguments[_key4];
+  }
+
+  var removeFields = function removeFields(data) {
+    var _iteratorNormalCompletion4 = true;
+    var _didIteratorError4 = false;
+    var _iteratorError4 = undefined;
+
+    try {
+      for (var _iterator4 = fields[Symbol.iterator](), _step4; !(_iteratorNormalCompletion4 = (_step4 = _iterator4.next()).done); _iteratorNormalCompletion4 = true) {
+        var field = _step4.value;
+
+        data[field] = undefined;
+        delete data[field];
+      }
+    } catch (err) {
+      _didIteratorError4 = true;
+      _iteratorError4 = err;
+    } finally {
+      try {
+        if (!_iteratorNormalCompletion4 && _iterator4.return) {
+          _iterator4.return();
+        }
+      } finally {
+        if (_didIteratorError4) {
+          throw _iteratorError4;
         }
       }
     }
@@ -1627,18 +1907,18 @@ function remove() {
 }
 
 function pluck() {
-  for (var _len3 = arguments.length, fields = Array(_len3), _key3 = 0; _key3 < _len3; _key3++) {
-    fields[_key3] = arguments[_key3];
+  for (var _len5 = arguments.length, fields = Array(_len5), _key5 = 0; _key5 < _len5; _key5++) {
+    fields[_key5] = arguments[_key5];
   }
 
   var pluckFields = function pluckFields(data) {
-    var _iteratorNormalCompletion3 = true;
-    var _didIteratorError3 = false;
-    var _iteratorError3 = undefined;
+    var _iteratorNormalCompletion5 = true;
+    var _didIteratorError5 = false;
+    var _iteratorError5 = undefined;
 
     try {
-      for (var _iterator3 = Object.keys(data)[Symbol.iterator](), _step3; !(_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done); _iteratorNormalCompletion3 = true) {
-        var key = _step3.value;
+      for (var _iterator5 = Object.keys(data)[Symbol.iterator](), _step5; !(_iteratorNormalCompletion5 = (_step5 = _iterator5.next()).done); _iteratorNormalCompletion5 = true) {
+        var key = _step5.value;
 
         if (fields.indexOf(key) === -1) {
           data[key] = undefined;
@@ -1646,16 +1926,16 @@ function pluck() {
         }
       }
     } catch (err) {
-      _didIteratorError3 = true;
-      _iteratorError3 = err;
+      _didIteratorError5 = true;
+      _iteratorError5 = err;
     } finally {
       try {
-        if (!_iteratorNormalCompletion3 && _iterator3.return) {
-          _iterator3.return();
+        if (!_iteratorNormalCompletion5 && _iterator5.return) {
+          _iterator5.return();
         }
       } finally {
-        if (_didIteratorError3) {
-          throw _iteratorError3;
+        if (_didIteratorError5) {
+          throw _iteratorError5;
         }
       }
     }
@@ -1708,11 +1988,11 @@ function disable(realm) {
       next(result);
     };
   } else {
-    var _len4, args, _key4;
+    var _len6, args, _key6;
 
     var _ret = function () {
-      for (_len4 = _arguments.length, args = Array(_len4 > 1 ? _len4 - 1 : 0), _key4 = 1; _key4 < _len4; _key4++) {
-        args[_key4 - 1] = _arguments[_key4];
+      for (_len6 = _arguments.length, args = Array(_len6 > 1 ? _len6 - 1 : 0), _key6 = 1; _key6 < _len6; _key6++) {
+        args[_key6 - 1] = _arguments[_key6];
       }
 
       var providers = [realm].concat(args);
@@ -2020,6 +2300,8 @@ function configure() {
   };
 }
 
+configure.removeQuery = hooks.removeQuery;
+configure.pluckQuery = hooks.pluckQuery;
 configure.lowerCase = hooks.lowerCase;
 configure.remove = hooks.remove;
 configure.pluck = hooks.pluck;
@@ -2070,8 +2352,8 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 module.exports = exports['default'];
 },{"feathers-socket-commons/client":29}],18:[function(require,module,exports){
-arguments[4][16][0].apply(exports,arguments)
-},{"./lib/client":21,"dup":16}],19:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/client/index":21,"dup":4}],19:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -2234,6 +2516,10 @@ var Service = function (_Base) {
       var _this2 = this;
 
       var fetchOptions = _extends({}, options);
+
+      fetchOptions.headers = _extends({
+        Accept: 'application/json'
+      }, fetchOptions.headers);
 
       if (options.body) {
         fetchOptions.body = JSON.stringify(options.body);
@@ -2499,7 +2785,7 @@ var Service = function (_Base) {
   _createClass(Service, [{
     key: 'request',
     value: function request(options) {
-      var superagent = this.connection(options.method, options.url).type(options.type || 'json');
+      var superagent = this.connection(options.method, options.url).set('Accept', 'application/json').type(options.type || 'json');
 
       return new Promise(function (resolve, reject) {
         superagent.set(options.headers);
@@ -3215,9 +3501,8 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 module.exports = exports['default'];
 },{"feathers-socket-commons/client":29}],34:[function(require,module,exports){
-module.exports = require('./lib/client/index');
-
-},{"./lib/client/index":37}],35:[function(require,module,exports){
+arguments[4][4][0].apply(exports,arguments)
+},{"./lib/client/index":37,"dup":4}],35:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3653,7 +3938,7 @@ module.exports={
   "_args": [
     [
       "feathers@^2.0.0",
-      "/Users/daffl/Development/feathersjs/feathers-client"
+      "/Users/beematik/Repos/feathers/feathers-client"
     ]
   ],
   "_from": "feathers@>=2.0.0 <3.0.0",
@@ -3687,7 +3972,7 @@ module.exports={
   "_shasum": "0ff06df8fd72271c25e6d1b4117b9e7721cfe370",
   "_shrinkwrap": null,
   "_spec": "feathers@^2.0.0",
-  "_where": "/Users/daffl/Development/feathersjs/feathers-client",
+  "_where": "/Users/beematik/Repos/feathers/feathers-client",
   "author": {
     "email": "hello@feathersjs.com",
     "name": "Feathers",
