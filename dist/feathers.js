@@ -701,7 +701,7 @@ function populateHeader() {
 
   return function (hook) {
     if (hook.params.token) {
-      hook.params.headers = Object.assign({}, _defineProperty({}, options.header || 'authorization', hook.params.token), hook.params.headers);
+      hook.params.headers = Object.assign({}, _defineProperty({}, options.header || 'Authorization', hook.params.token), hook.params.headers);
     }
   };
 }
@@ -757,6 +757,10 @@ exports.default = function () {
           endPoint = config.localEndpoint;
         } else if (options.type === 'token') {
           endPoint = config.tokenEndpoint;
+        } else if (options.type === 'facebook') {
+          endPoint = config.facebookEndpoint;
+        } else if (options.type === 'google') {
+          endPoint = config.googleEndpoint;
         } else {
           throw new Error('Unsupported authentication \'type\': ' + options.type);
         }
@@ -783,7 +787,7 @@ exports.default = function () {
       (0, _utils.clearCookie)(config.cookie);
 
       // remove the token from localStorage
-      return Promise.resolve(app.get('storage').removeItem(config.tokenKey)).then(function () {
+      return Promise.resolve(app.get('storage').setItem(config.tokenKey, '')).then(function () {
         // If using sockets de-authenticate the socket
         if (app.io || app.primus) {
           var method = app.io ? 'emit' : 'send';
@@ -831,7 +835,9 @@ var defaults = {
   cookie: 'feathers-jwt',
   tokenKey: 'feathers-jwt',
   localEndpoint: '/auth/local',
-  tokenEndpoint: '/auth/token'
+  tokenEndpoint: '/auth/token',
+  facebookEndpoint: '/auth/facebook',
+  googleEndpoint: '/auth/google'
 };
 
 module.exports = exports['default'];
@@ -950,10 +956,6 @@ function getStorage(storage) {
     },
     setItem: function setItem(key, value) {
       return this.store[key] = value;
-    },
-    removeItem: function removeItem(key) {
-      delete this.store[key];
-      return this;
     }
   };
 }
@@ -1643,7 +1645,20 @@ var errors = {
   Unprocessable: Unprocessable,
   GeneralError: GeneralError,
   NotImplemented: NotImplemented,
-  Unavailable: Unavailable
+  Unavailable: Unavailable,
+  400: BadRequest,
+  401: NotAuthenticated,
+  402: PaymentError,
+  403: Forbidden,
+  404: NotFound,
+  405: MethodNotAllowed,
+  406: NotAcceptable,
+  408: Timeout,
+  409: Conflict,
+  422: Unprocessable,
+  500: GeneralError,
+  501: NotImplemented,
+  503: Unavailable
 };
 
 function convert(error) {
@@ -3721,7 +3736,6 @@ function plural(ms, n, name) {
 
 },{}],40:[function(require,module,exports){
 // shim for using process in browser
-
 var process = module.exports = {};
 
 // cached from whatever global is present so that test runners that stub it
@@ -3733,21 +3747,63 @@ var cachedSetTimeout;
 var cachedClearTimeout;
 
 (function () {
-  try {
-    cachedSetTimeout = setTimeout;
-  } catch (e) {
-    cachedSetTimeout = function () {
-      throw new Error('setTimeout is not defined');
+    try {
+        cachedSetTimeout = setTimeout;
+    } catch (e) {
+        cachedSetTimeout = function () {
+            throw new Error('setTimeout is not defined');
+        }
     }
-  }
-  try {
-    cachedClearTimeout = clearTimeout;
-  } catch (e) {
-    cachedClearTimeout = function () {
-      throw new Error('clearTimeout is not defined');
+    try {
+        cachedClearTimeout = clearTimeout;
+    } catch (e) {
+        cachedClearTimeout = function () {
+            throw new Error('clearTimeout is not defined');
+        }
     }
-  }
 } ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
 var queue = [];
 var draining = false;
 var currentQueue;
@@ -3772,7 +3828,7 @@ function drainQueue() {
     if (draining) {
         return;
     }
-    var timeout = cachedSetTimeout(cleanUpNextTick);
+    var timeout = runTimeout(cleanUpNextTick);
     draining = true;
 
     var len = queue.length;
@@ -3789,7 +3845,7 @@ function drainQueue() {
     }
     currentQueue = null;
     draining = false;
-    cachedClearTimeout(timeout);
+    runClearTimeout(timeout);
 }
 
 process.nextTick = function (fun) {
@@ -3801,7 +3857,7 @@ process.nextTick = function (fun) {
     }
     queue.push(new Item(fun, args));
     if (queue.length === 1 && !draining) {
-        cachedSetTimeout(drainQueue, 0);
+        runTimeout(drainQueue);
     }
 };
 
