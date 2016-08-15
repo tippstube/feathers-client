@@ -367,7 +367,7 @@ function coerce(val) {
   return val;
 }
 
-},{"ms":44}],3:[function(require,module,exports){
+},{"ms":39}],3:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -427,8 +427,12 @@ EventEmitter.prototype.emit = function(type) {
       er = arguments[1];
       if (er instanceof Error) {
         throw er; // Unhandled 'error' event
+      } else {
+        // At least give some kind of context to the user
+        var err = new Error('Uncaught, unspecified "error" event. (' + er + ')');
+        err.context = er;
+        throw err;
       }
-      throw TypeError('Uncaught, unspecified "error" event.');
     }
   }
 
@@ -697,7 +701,7 @@ function populateHeader() {
 
   return function (hook) {
     if (hook.params.token) {
-      hook.params.headers = Object.assign({}, _defineProperty({}, options.header || 'Authorization', hook.params.token), hook.params.headers);
+      hook.params.headers = Object.assign({}, _defineProperty({}, options.header || 'authorization', hook.params.token), hook.params.headers);
     }
   };
 }
@@ -753,10 +757,6 @@ exports.default = function () {
           endPoint = config.localEndpoint;
         } else if (options.type === 'token') {
           endPoint = config.tokenEndpoint;
-        } else if (options.type === 'facebook') {
-          endPoint = config.facebookEndpoint;
-        } else if (options.type === 'google') {
-          endPoint = config.googleEndpoint;
         } else {
           throw new Error('Unsupported authentication \'type\': ' + options.type);
         }
@@ -783,7 +783,7 @@ exports.default = function () {
       (0, _utils.clearCookie)(config.cookie);
 
       // remove the token from localStorage
-      return Promise.resolve(app.get('storage').setItem(config.tokenKey, '')).then(function () {
+      return Promise.resolve(app.get('storage').removeItem(config.tokenKey)).then(function () {
         // If using sockets de-authenticate the socket
         if (app.io || app.primus) {
           var method = app.io ? 'emit' : 'send';
@@ -831,9 +831,7 @@ var defaults = {
   cookie: 'feathers-jwt',
   tokenKey: 'feathers-jwt',
   localEndpoint: '/auth/local',
-  tokenEndpoint: '/auth/token',
-  facebookEndpoint: '/auth/facebook',
-  googleEndpoint: '/auth/google'
+  tokenEndpoint: '/auth/token'
 };
 
 module.exports = exports['default'];
@@ -952,6 +950,10 @@ function getStorage(storage) {
     },
     setItem: function setItem(key, value) {
       return this.store[key] = value;
+    },
+    removeItem: function removeItem(key) {
+      delete this.store[key];
+      return this;
     }
   };
 }
@@ -1127,7 +1129,7 @@ exports.converters = {
   patch: updateOrPatch
 };
 
-exports.hookObject = function (method, type, args) {
+exports.hookObject = exports.hook = function (method, type, args) {
   var hook = exports.converters[method](args);
 
   hook.method = method;
@@ -1136,36 +1138,56 @@ exports.hookObject = function (method, type, args) {
   return hook;
 };
 
-exports.makeArguments = function (hookObject) {
+var defaultMakeArguments = exports.defaultMakeArguments = function (hook) {
   var result = [];
-  if (typeof hookObject.id !== 'undefined') {
-    result.push(hookObject.id);
+  if (typeof hook.id !== 'undefined') {
+    result.push(hook.id);
   }
 
-  if (hookObject.data) {
-    result.push(hookObject.data);
+  if (hook.data) {
+    result.push(hook.data);
   }
 
-  result.push(hookObject.params || {});
-  result.push(hookObject.callback);
+  result.push(hook.params || {});
+  result.push(hook.callback);
 
   return result;
 };
 
+exports.makeArguments = function (hook) {
+  if (hook.method === 'find') {
+    return [hook.params, hook.callback];
+  }
+
+  if (hook.method === 'get' || hook.method === 'remove') {
+    return [hook.id, hook.params, hook.callback];
+  }
+
+  if (hook.method === 'update' || hook.method === 'patch') {
+    return [hook.id, hook.data, hook.params, hook.callback];
+  }
+
+  if (hook.method === 'create') {
+    return [hook.data, hook.params, hook.callback];
+  }
+
+  return defaultMakeArguments(hook);
+};
+
 exports.convertHookData = function (obj) {
-  var hookObject = {};
+  var hook = {};
 
   if (Array.isArray(obj)) {
-    hookObject = { all: obj };
+    hook = { all: obj };
   } else if ((typeof obj === 'undefined' ? 'undefined' : _typeof(obj)) !== 'object') {
-    hookObject = { all: [obj] };
+    hook = { all: [obj] };
   } else {
     (0, _utils.each)(obj, function (value, key) {
-      hookObject[key] = !Array.isArray(value) ? [value] : value;
+      hook[key] = !Array.isArray(value) ? [value] : value;
     });
   }
 
-  return hookObject;
+  return hook;
 };
 },{"./utils":11}],11:[function(require,module,exports){
 'use strict';
@@ -1226,31 +1248,9 @@ var _ = exports._ = {
       keys[_key - 1] = arguments[_key];
     }
 
-    var _iteratorNormalCompletion = true;
-    var _didIteratorError = false;
-    var _iteratorError = undefined;
-
-    try {
-      for (var _iterator = keys[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
-        var key = _step.value;
-
-        delete result[key];
-      }
-    } catch (err) {
-      _didIteratorError = true;
-      _iteratorError = err;
-    } finally {
-      try {
-        if (!_iteratorNormalCompletion && _iterator.return) {
-          _iterator.return();
-        }
-      } finally {
-        if (_didIteratorError) {
-          throw _iteratorError;
-        }
-      }
-    }
-
+    keys.forEach(function (key) {
+      return delete result[key];
+    });
     return result;
   }
 };
@@ -1646,7 +1646,26 @@ var errors = {
   Unavailable: Unavailable
 };
 
-exports.default = _extends({ types: errors, errors: errors }, errors);
+function convert(error) {
+  if (!error) {
+    return error;
+  }
+
+  var FeathersError = errors[error.name];
+  var result = FeathersError ? new FeathersError(error.message, error.data) : new Error(error.message || error);
+
+  if ((typeof error === 'undefined' ? 'undefined' : _typeof(error)) === 'object') {
+    _extends(result, error);
+  }
+
+  return result;
+}
+
+exports.default = _extends({
+  convert: convert,
+  types: errors,
+  errors: errors
+}, errors);
 module.exports = exports['default'];
 },{"debug":1}],13:[function(require,module,exports){
 'use strict';
@@ -1789,7 +1808,6 @@ function pluckQuery() {
   }
 
   var pluckQueries = function pluckQueries(data) {
-    // admin, name
     var _iteratorNormalCompletion3 = true;
     var _didIteratorError3 = false;
     var _iteratorError3 = undefined;
@@ -1799,7 +1817,6 @@ function pluckQuery() {
         var key = _step3.value;
 
         if (fields.indexOf(key) === -1) {
-          console.log(key);
           data[key] = undefined;
           delete data[key];
         }
@@ -1842,6 +1859,34 @@ function pluckQuery() {
   };
 }
 
+function containsField(obj, find) {
+  var args = find.split('.');
+
+  for (var i = 0; i < args.length; i++) {
+    if (!obj || !obj.hasOwnProperty(args[i])) {
+      return false;
+    }
+    obj = obj[args[i]];
+  }
+  return true;
+}
+
+function removeField(obj, find) {
+  var args = find.split('.');
+
+  for (var i = 0; i < args.length; i++) {
+    if (!obj || !obj.hasOwnProperty(args[i])) {
+      return false;
+    }
+    if (i === args.length - 1) {
+      obj[args[i]] = undefined;
+      delete obj[args[i]];
+      return true;
+    }
+    obj = obj[args[i]];
+  }
+}
+
 function remove() {
   for (var _len4 = arguments.length, fields = Array(_len4), _key4 = 0; _key4 < _len4; _key4++) {
     fields[_key4] = arguments[_key4];
@@ -1856,8 +1901,9 @@ function remove() {
       for (var _iterator4 = fields[Symbol.iterator](), _step4; !(_iteratorNormalCompletion4 = (_step4 = _iterator4.next()).done); _iteratorNormalCompletion4 = true) {
         var field = _step4.value;
 
-        data[field] = undefined;
-        delete data[field];
+        if (containsField(data, field)) {
+          removeField(data, field);
+        }
       }
     } catch (err) {
       _didIteratorError4 = true;
@@ -2038,14 +2084,16 @@ function populate(target, options) {
       else if (typeof item.toJSON === 'function') {
           item = item.toJSON(options);
         }
-
-      return hook.app.service(options.service).get(id, hook.params).then(function (relatedItem) {
+      // Remove any query from params as it's not related
+      var params = Object.assign({}, params, { query: undefined });
+      // If the relationship is an array of ids, fetch and resolve an object for each, otherwise just fetch the object.
+      var promise = Array.isArray(id) ? Promise.all(id.map(function (objectID) {
+        return hook.app.service(options.service).get(objectID, params);
+      })) : hook.app.service(options.service).get(id, params);
+      return promise.then(function (relatedItem) {
         if (relatedItem) {
           item[target] = relatedItem;
         }
-
-        return item;
-      }).catch(function () {
         return item;
       });
     }
@@ -2320,13 +2368,17 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
-exports.default = function (connection) {
+exports.default = function (connection, options) {
   if (!connection) {
     throw new Error('Primus connection needs to be provided');
   }
 
   var defaultService = function defaultService(name) {
-    return new _client2.default({ name: name, connection: connection, method: 'send' });
+    return new _client2.default(Object.assign({}, options, {
+      name: name,
+      connection: connection,
+      method: 'send'
+    }));
   };
 
   var initialize = function initialize() {
@@ -2351,7 +2403,7 @@ var _client2 = _interopRequireDefault(_client);
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 module.exports = exports['default'];
-},{"feathers-socket-commons/client":29}],18:[function(require,module,exports){
+},{"feathers-socket-commons/client":25}],18:[function(require,module,exports){
 arguments[4][4][0].apply(exports,arguments)
 },{"./lib/client/index":21,"dup":4}],19:[function(require,module,exports){
 'use strict';
@@ -2370,9 +2422,15 @@ var _qs2 = _interopRequireDefault(_qs);
 
 var _feathersCommons = require('feathers-commons');
 
+var _feathersErrors = require('feathers-errors');
+
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function toError(error) {
+  throw (0, _feathersErrors.convert)(error);
+}
 
 var Base = function () {
   function Base(settings) {
@@ -2390,7 +2448,7 @@ var Base = function () {
       params = params || {};
       var url = this.base;
 
-      if (typeof id !== 'undefined') {
+      if (typeof id !== 'undefined' && id !== null) {
         url += '/' + id;
       }
 
@@ -2411,7 +2469,7 @@ var Base = function () {
         url: this.makeUrl(params.query),
         method: 'GET',
         headers: _extends({}, params.headers)
-      });
+      }).catch(toError);
     }
   }, {
     key: 'get',
@@ -2422,7 +2480,7 @@ var Base = function () {
         url: this.makeUrl(params.query, id),
         method: 'GET',
         headers: _extends({}, params.headers)
-      });
+      }).catch(toError);
     }
   }, {
     key: 'create',
@@ -2434,7 +2492,7 @@ var Base = function () {
         body: body,
         method: 'POST',
         headers: _extends({ 'Content-Type': 'application/json' }, params.headers)
-      });
+      }).catch(toError);
     }
   }, {
     key: 'update',
@@ -2446,7 +2504,7 @@ var Base = function () {
         body: body,
         method: 'PUT',
         headers: _extends({ 'Content-Type': 'application/json' }, params.headers)
-      });
+      }).catch(toError);
     }
   }, {
     key: 'patch',
@@ -2458,7 +2516,7 @@ var Base = function () {
         body: body,
         method: 'PATCH',
         headers: _extends({ 'Content-Type': 'application/json' }, params.headers)
-      });
+      }).catch(toError);
     }
   }, {
     key: 'remove',
@@ -2469,7 +2527,7 @@ var Base = function () {
         url: this.makeUrl(params.query, id),
         method: 'DELETE',
         headers: _extends({}, params.headers)
-      });
+      }).catch(toError);
     }
   }]);
 
@@ -2478,7 +2536,7 @@ var Base = function () {
 
 exports.default = Base;
 module.exports = exports['default'];
-},{"feathers-commons":9,"qs":25}],20:[function(require,module,exports){
+},{"feathers-commons":9,"feathers-errors":12,"qs":41}],20:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -2513,8 +2571,6 @@ var Service = function (_Base) {
   _createClass(Service, [{
     key: 'request',
     value: function request(options) {
-      var _this2 = this;
-
       var fetchOptions = _extends({}, options);
 
       fetchOptions.headers = _extends({
@@ -2525,8 +2581,10 @@ var Service = function (_Base) {
         fetchOptions.body = JSON.stringify(options.body);
       }
 
-      return new Promise(function (resolve, reject) {
-        _this2.connection(options.url, fetchOptions).then(_this2.checkStatus).then(_this2.parseJSON).then(resolve).catch(reject);
+      var fetch = this.connection;
+
+      return fetch(options.url, fetchOptions).then(this.checkStatus).then(function (response) {
+        return response.json();
       });
     }
   }, {
@@ -2536,15 +2594,10 @@ var Service = function (_Base) {
         return response;
       }
 
-      var error = new Error(response.statusText);
-      error.code = response.status;
-      error.response = response;
-      throw error;
-    }
-  }, {
-    key: 'parseJSON',
-    value: function parseJSON(response) {
-      return response.json();
+      return response.json().then(function (error) {
+        error.response = response;
+        throw error;
+      });
     }
   }]);
 
@@ -2675,8 +2728,16 @@ var Service = function (_Base) {
 
       return new Promise(function (resolve, reject) {
         _this2.connection.ajax(opts).then(resolve, function (xhr) {
-          var error = new Error(xhr.responseText);
-          error.xhr = xhr;
+          var error = xhr.responseText;
+
+          try {
+            error = JSON.parse(error);
+          } catch (e) {
+            error = new Error(xhr.responseText);
+          }
+
+          error.xhr = error.response = xhr;
+
           reject(error);
         });
       });
@@ -2738,6 +2799,8 @@ var Service = function (_Base) {
               return reject(new Error(data));
             }
 
+            data.response = res;
+
             return reject(_extends(new Error(data.message), data));
           }
 
@@ -2796,6 +2859,12 @@ var Service = function (_Base) {
 
         superagent.end(function (error, res) {
           if (error) {
+            try {
+              var response = error.response;
+              error = JSON.parse(error.response.text);
+              error.response = response;
+            } catch (e) {}
+
             return reject(error);
           }
 
@@ -2811,482 +2880,8 @@ var Service = function (_Base) {
 exports.default = Service;
 module.exports = exports['default'];
 },{"./base":19}],25:[function(require,module,exports){
-'use strict';
-
-var Stringify = require('./stringify');
-var Parse = require('./parse');
-
-module.exports = {
-    stringify: Stringify,
-    parse: Parse
-};
-
-},{"./parse":26,"./stringify":27}],26:[function(require,module,exports){
-'use strict';
-
-var Utils = require('./utils');
-
-var internals = {
-    delimiter: '&',
-    depth: 5,
-    arrayLimit: 20,
-    parameterLimit: 1000,
-    strictNullHandling: false,
-    plainObjects: false,
-    allowPrototypes: false,
-    allowDots: false
-};
-
-internals.parseValues = function (str, options) {
-    var obj = {};
-    var parts = str.split(options.delimiter, options.parameterLimit === Infinity ? undefined : options.parameterLimit);
-
-    for (var i = 0; i < parts.length; ++i) {
-        var part = parts[i];
-        var pos = part.indexOf(']=') === -1 ? part.indexOf('=') : part.indexOf(']=') + 1;
-
-        if (pos === -1) {
-            obj[Utils.decode(part)] = '';
-
-            if (options.strictNullHandling) {
-                obj[Utils.decode(part)] = null;
-            }
-        } else {
-            var key = Utils.decode(part.slice(0, pos));
-            var val = Utils.decode(part.slice(pos + 1));
-
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                obj[key] = [].concat(obj[key]).concat(val);
-            } else {
-                obj[key] = val;
-            }
-        }
-    }
-
-    return obj;
-};
-
-internals.parseObject = function (chain, val, options) {
-    if (!chain.length) {
-        return val;
-    }
-
-    var root = chain.shift();
-
-    var obj;
-    if (root === '[]') {
-        obj = [];
-        obj = obj.concat(internals.parseObject(chain, val, options));
-    } else {
-        obj = options.plainObjects ? Object.create(null) : {};
-        var cleanRoot = root[0] === '[' && root[root.length - 1] === ']' ? root.slice(1, root.length - 1) : root;
-        var index = parseInt(cleanRoot, 10);
-        if (
-            !isNaN(index) &&
-            root !== cleanRoot &&
-            String(index) === cleanRoot &&
-            index >= 0 &&
-            (options.parseArrays && index <= options.arrayLimit)
-        ) {
-            obj = [];
-            obj[index] = internals.parseObject(chain, val, options);
-        } else {
-            obj[cleanRoot] = internals.parseObject(chain, val, options);
-        }
-    }
-
-    return obj;
-};
-
-internals.parseKeys = function (givenKey, val, options) {
-    if (!givenKey) {
-        return;
-    }
-
-    // Transform dot notation to bracket notation
-    var key = options.allowDots ? givenKey.replace(/\.([^\.\[]+)/g, '[$1]') : givenKey;
-
-    // The regex chunks
-
-    var parent = /^([^\[\]]*)/;
-    var child = /(\[[^\[\]]*\])/g;
-
-    // Get the parent
-
-    var segment = parent.exec(key);
-
-    // Stash the parent if it exists
-
-    var keys = [];
-    if (segment[1]) {
-        // If we aren't using plain objects, optionally prefix keys
-        // that would overwrite object prototype properties
-        if (!options.plainObjects && Object.prototype.hasOwnProperty(segment[1])) {
-            if (!options.allowPrototypes) {
-                return;
-            }
-        }
-
-        keys.push(segment[1]);
-    }
-
-    // Loop through children appending to the array until we hit depth
-
-    var i = 0;
-    while ((segment = child.exec(key)) !== null && i < options.depth) {
-        i += 1;
-        if (!options.plainObjects && Object.prototype.hasOwnProperty(segment[1].replace(/\[|\]/g, ''))) {
-            if (!options.allowPrototypes) {
-                continue;
-            }
-        }
-        keys.push(segment[1]);
-    }
-
-    // If there's a remainder, just add whatever is left
-
-    if (segment) {
-        keys.push('[' + key.slice(segment.index) + ']');
-    }
-
-    return internals.parseObject(keys, val, options);
-};
-
-module.exports = function (str, opts) {
-    var options = opts || {};
-    options.delimiter = typeof options.delimiter === 'string' || Utils.isRegExp(options.delimiter) ? options.delimiter : internals.delimiter;
-    options.depth = typeof options.depth === 'number' ? options.depth : internals.depth;
-    options.arrayLimit = typeof options.arrayLimit === 'number' ? options.arrayLimit : internals.arrayLimit;
-    options.parseArrays = options.parseArrays !== false;
-    options.allowDots = typeof options.allowDots === 'boolean' ? options.allowDots : internals.allowDots;
-    options.plainObjects = typeof options.plainObjects === 'boolean' ? options.plainObjects : internals.plainObjects;
-    options.allowPrototypes = typeof options.allowPrototypes === 'boolean' ? options.allowPrototypes : internals.allowPrototypes;
-    options.parameterLimit = typeof options.parameterLimit === 'number' ? options.parameterLimit : internals.parameterLimit;
-    options.strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : internals.strictNullHandling;
-
-    if (
-        str === '' ||
-        str === null ||
-        typeof str === 'undefined'
-    ) {
-        return options.plainObjects ? Object.create(null) : {};
-    }
-
-    var tempObj = typeof str === 'string' ? internals.parseValues(str, options) : str;
-    var obj = options.plainObjects ? Object.create(null) : {};
-
-    // Iterate over the keys and setup the new object
-
-    var keys = Object.keys(tempObj);
-    for (var i = 0; i < keys.length; ++i) {
-        var key = keys[i];
-        var newObj = internals.parseKeys(key, tempObj[key], options);
-        obj = Utils.merge(obj, newObj, options);
-    }
-
-    return Utils.compact(obj);
-};
-
-},{"./utils":28}],27:[function(require,module,exports){
-'use strict';
-
-var Utils = require('./utils');
-
-var internals = {
-    delimiter: '&',
-    arrayPrefixGenerators: {
-        brackets: function (prefix) {
-            return prefix + '[]';
-        },
-        indices: function (prefix, key) {
-            return prefix + '[' + key + ']';
-        },
-        repeat: function (prefix) {
-            return prefix;
-        }
-    },
-    strictNullHandling: false,
-    skipNulls: false,
-    encode: true
-};
-
-internals.stringify = function (object, prefix, generateArrayPrefix, strictNullHandling, skipNulls, encode, filter, sort, allowDots) {
-    var obj = object;
-    if (typeof filter === 'function') {
-        obj = filter(prefix, obj);
-    } else if (Utils.isBuffer(obj)) {
-        obj = String(obj);
-    } else if (obj instanceof Date) {
-        obj = obj.toISOString();
-    } else if (obj === null) {
-        if (strictNullHandling) {
-            return encode ? Utils.encode(prefix) : prefix;
-        }
-
-        obj = '';
-    }
-
-    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
-        if (encode) {
-            return [Utils.encode(prefix) + '=' + Utils.encode(obj)];
-        }
-        return [prefix + '=' + obj];
-    }
-
-    var values = [];
-
-    if (typeof obj === 'undefined') {
-        return values;
-    }
-
-    var objKeys;
-    if (Array.isArray(filter)) {
-        objKeys = filter;
-    } else {
-        var keys = Object.keys(obj);
-        objKeys = sort ? keys.sort(sort) : keys;
-    }
-
-    for (var i = 0; i < objKeys.length; ++i) {
-        var key = objKeys[i];
-
-        if (skipNulls && obj[key] === null) {
-            continue;
-        }
-
-        if (Array.isArray(obj)) {
-            values = values.concat(internals.stringify(obj[key], generateArrayPrefix(prefix, key), generateArrayPrefix, strictNullHandling, skipNulls, encode, filter, sort, allowDots));
-        } else {
-            values = values.concat(internals.stringify(obj[key], prefix + (allowDots ? '.' + key : '[' + key + ']'), generateArrayPrefix, strictNullHandling, skipNulls, encode, filter, sort, allowDots));
-        }
-    }
-
-    return values;
-};
-
-module.exports = function (object, opts) {
-    var obj = object;
-    var options = opts || {};
-    var delimiter = typeof options.delimiter === 'undefined' ? internals.delimiter : options.delimiter;
-    var strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : internals.strictNullHandling;
-    var skipNulls = typeof options.skipNulls === 'boolean' ? options.skipNulls : internals.skipNulls;
-    var encode = typeof options.encode === 'boolean' ? options.encode : internals.encode;
-    var sort = typeof options.sort === 'function' ? options.sort : null;
-    var allowDots = typeof options.allowDots === 'undefined' ? false : options.allowDots;
-    var objKeys;
-    var filter;
-    if (typeof options.filter === 'function') {
-        filter = options.filter;
-        obj = filter('', obj);
-    } else if (Array.isArray(options.filter)) {
-        objKeys = filter = options.filter;
-    }
-
-    var keys = [];
-
-    if (typeof obj !== 'object' || obj === null) {
-        return '';
-    }
-
-    var arrayFormat;
-    if (options.arrayFormat in internals.arrayPrefixGenerators) {
-        arrayFormat = options.arrayFormat;
-    } else if ('indices' in options) {
-        arrayFormat = options.indices ? 'indices' : 'repeat';
-    } else {
-        arrayFormat = 'indices';
-    }
-
-    var generateArrayPrefix = internals.arrayPrefixGenerators[arrayFormat];
-
-    if (!objKeys) {
-        objKeys = Object.keys(obj);
-    }
-
-    if (sort) {
-        objKeys.sort(sort);
-    }
-
-    for (var i = 0; i < objKeys.length; ++i) {
-        var key = objKeys[i];
-
-        if (skipNulls && obj[key] === null) {
-            continue;
-        }
-
-        keys = keys.concat(internals.stringify(obj[key], key, generateArrayPrefix, strictNullHandling, skipNulls, encode, filter, sort, allowDots));
-    }
-
-    return keys.join(delimiter);
-};
-
-},{"./utils":28}],28:[function(require,module,exports){
-'use strict';
-
-var hexTable = (function () {
-    var array = new Array(256);
-    for (var i = 0; i < 256; ++i) {
-        array[i] = '%' + ((i < 16 ? '0' : '') + i.toString(16)).toUpperCase();
-    }
-
-    return array;
-}());
-
-exports.arrayToObject = function (source, options) {
-    var obj = options.plainObjects ? Object.create(null) : {};
-    for (var i = 0; i < source.length; ++i) {
-        if (typeof source[i] !== 'undefined') {
-            obj[i] = source[i];
-        }
-    }
-
-    return obj;
-};
-
-exports.merge = function (target, source, options) {
-    if (!source) {
-        return target;
-    }
-
-    if (typeof source !== 'object') {
-        if (Array.isArray(target)) {
-            target.push(source);
-        } else if (typeof target === 'object') {
-            target[source] = true;
-        } else {
-            return [target, source];
-        }
-
-        return target;
-    }
-
-    if (typeof target !== 'object') {
-        return [target].concat(source);
-    }
-
-    var mergeTarget = target;
-    if (Array.isArray(target) && !Array.isArray(source)) {
-        mergeTarget = exports.arrayToObject(target, options);
-    }
-
-	return Object.keys(source).reduce(function (acc, key) {
-        var value = source[key];
-
-        if (Object.prototype.hasOwnProperty.call(acc, key)) {
-            acc[key] = exports.merge(acc[key], value, options);
-        } else {
-            acc[key] = value;
-        }
-		return acc;
-    }, mergeTarget);
-};
-
-exports.decode = function (str) {
-    try {
-        return decodeURIComponent(str.replace(/\+/g, ' '));
-    } catch (e) {
-        return str;
-    }
-};
-
-exports.encode = function (str) {
-    // This code was originally written by Brian White (mscdex) for the io.js core querystring library.
-    // It has been adapted here for stricter adherence to RFC 3986
-    if (str.length === 0) {
-        return str;
-    }
-
-    var string = typeof str === 'string' ? str : String(str);
-
-    var out = '';
-    for (var i = 0; i < string.length; ++i) {
-        var c = string.charCodeAt(i);
-
-        if (
-            c === 0x2D || // -
-            c === 0x2E || // .
-            c === 0x5F || // _
-            c === 0x7E || // ~
-            (c >= 0x30 && c <= 0x39) || // 0-9
-            (c >= 0x41 && c <= 0x5A) || // a-z
-            (c >= 0x61 && c <= 0x7A) // A-Z
-        ) {
-            out += string.charAt(i);
-            continue;
-        }
-
-        if (c < 0x80) {
-            out = out + hexTable[c];
-            continue;
-        }
-
-        if (c < 0x800) {
-            out = out + (hexTable[0xC0 | (c >> 6)] + hexTable[0x80 | (c & 0x3F)]);
-            continue;
-        }
-
-        if (c < 0xD800 || c >= 0xE000) {
-            out = out + (hexTable[0xE0 | (c >> 12)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]);
-            continue;
-        }
-
-        i += 1;
-        c = 0x10000 + (((c & 0x3FF) << 10) | (string.charCodeAt(i) & 0x3FF));
-        out += (hexTable[0xF0 | (c >> 18)] + hexTable[0x80 | ((c >> 12) & 0x3F)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]);
-    }
-
-    return out;
-};
-
-exports.compact = function (obj, references) {
-    if (typeof obj !== 'object' || obj === null) {
-        return obj;
-    }
-
-    var refs = references || [];
-    var lookup = refs.indexOf(obj);
-    if (lookup !== -1) {
-        return refs[lookup];
-    }
-
-    refs.push(obj);
-
-    if (Array.isArray(obj)) {
-        var compacted = [];
-
-        for (var i = 0; i < obj.length; ++i) {
-            if (typeof obj[i] !== 'undefined') {
-                compacted.push(obj[i]);
-            }
-        }
-
-        return compacted;
-    }
-
-    var keys = Object.keys(obj);
-    for (var j = 0; j < keys.length; ++j) {
-        var key = keys[j];
-        obj[key] = exports.compact(obj[key], refs);
-    }
-
-    return obj;
-};
-
-exports.isRegExp = function (obj) {
-    return Object.prototype.toString.call(obj) === '[object RegExp]';
-};
-
-exports.isBuffer = function (obj) {
-    if (obj === null || typeof obj === 'undefined') {
-        return false;
-    }
-
-    return !!(obj.constructor && obj.constructor.isBuffer && obj.constructor.isBuffer(obj));
-};
-
-},{}],29:[function(require,module,exports){
 arguments[4][16][0].apply(exports,arguments)
-},{"./lib/client":30,"dup":16}],30:[function(require,module,exports){
+},{"./lib/client":26,"dup":16}],26:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3297,9 +2892,49 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 var _utils = require('./utils');
 
+var _feathersErrors = require('feathers-errors');
+
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 var debug = require('debug')('feathers-socket-commons:client');
+var namespacedEmitterMethods = ['addListener', 'emit', 'listenerCount', 'listeners', 'on', 'once', 'prependListener', 'prependOnceListener', 'removeAllListeners', 'removeListener'];
+var otherEmitterMethods = ['eventNames', 'getMaxListeners', 'setMaxListeners'];
+
+var addEmitterMethods = function addEmitterMethods(service) {
+  otherEmitterMethods.forEach(function (method) {
+    service[method] = function () {
+      var _connection;
+
+      if (typeof this.connection[method] !== 'function') {
+        throw new Error('Can not call \'' + method + '\' on the client service connection.');
+      }
+
+      return (_connection = this.connection)[method].apply(_connection, arguments);
+    };
+  });
+
+  namespacedEmitterMethods.forEach(function (method) {
+    service[method] = function (name) {
+      var _connection2;
+
+      if (typeof this.connection[method] !== 'function') {
+        throw new Error('Can not call \'' + method + '\' on the client service connection.');
+      }
+
+      var eventName = this.path + ' ' + name;
+
+      debug('Calling emitter method ' + method + ' with ' + ('namespaced event \'' + eventName + '\''));
+
+      for (var _len = arguments.length, args = Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+        args[_key - 1] = arguments[_key];
+      }
+
+      var result = (_connection2 = this.connection)[method].apply(_connection2, [eventName].concat(args));
+
+      return result === this.connection ? this : result;
+    };
+  });
+};
 
 var Service = function () {
   function Service(options) {
@@ -3309,22 +2944,18 @@ var Service = function () {
     this.path = options.name;
     this.connection = options.connection;
     this.method = options.method;
+    this.timeout = options.timeout || 5000;
+
+    addEmitterMethods(this);
   }
 
   _createClass(Service, [{
-    key: 'emit',
-    value: function emit() {
-      var _connection;
-
-      (_connection = this.connection)[this.method].apply(_connection, arguments);
-    }
-  }, {
     key: 'send',
     value: function send(method) {
       var _this = this;
 
-      for (var _len = arguments.length, args = Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
-        args[_key - 1] = arguments[_key];
+      for (var _len2 = arguments.length, args = Array(_len2 > 1 ? _len2 - 1 : 0), _key2 = 1; _key2 < _len2; _key2++) {
+        args[_key2 - 1] = arguments[_key2];
       }
 
       var callback = null;
@@ -3333,10 +2964,18 @@ var Service = function () {
       }
 
       return new Promise(function (resolve, reject) {
-        var _connection2;
+        var _connection3;
 
-        args.unshift(_this.path + '::' + method);
+        var event = _this.path + '::' + method;
+        var timeoutId = setTimeout(function () {
+          return reject(new Error('Timeout of ' + _this.timeout + 'ms exceeded calling ' + event));
+        }, _this.timeout);
+
+        args.unshift(event);
         args.push(function (error, data) {
+          error = (0, _feathersErrors.convert)(error);
+          clearTimeout(timeoutId);
+
           if (callback) {
             callback(error, data);
           }
@@ -3346,7 +2985,7 @@ var Service = function () {
 
         debug('Sending socket.' + _this.method, args);
 
-        (_connection2 = _this.connection)[_this.method].apply(_connection2, args);
+        (_connection3 = _this.connection)[_this.method].apply(_connection3, args);
       });
     }
   }, {
@@ -3391,25 +3030,28 @@ var Service = function () {
 
       return this.send('remove', id, params.query || {});
     }
+  }, {
+    key: 'off',
+    value: function off() {
+      if (typeof this.connection.off === 'function') {
+        var _connection4;
+
+        return (_connection4 = this.connection).off.apply(_connection4, arguments);
+      } else if (arguments.length === 1) {
+        return this.removeAllListeners.apply(this, arguments);
+      }
+
+      return this.removeEventListener.apply(this, arguments);
+    }
   }]);
 
   return Service;
 }();
 
 exports.default = Service;
-
-
-var emitterMethods = ['on', 'once', 'off'];
-
-emitterMethods.forEach(function (method) {
-  Service.prototype[method] = function (name, callback) {
-    debug('Calling emitter method ' + method + ' with event \'' + this.path + ' ' + name + '\'');
-    this.connection[method](this.path + ' ' + name, callback);
-    return this;
-  };
-});
 module.exports = exports['default'];
-},{"./utils":31,"debug":1}],31:[function(require,module,exports){
+},{"./utils":27,"debug":1,"feathers-errors":12}],27:[function(require,module,exports){
+(function (process){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3418,7 +3060,7 @@ Object.defineProperty(exports, "__esModule", {
 exports.events = exports.eventMappings = undefined;
 exports.convertFilterData = convertFilterData;
 exports.promisify = promisify;
-exports.errorObject = errorObject;
+exports.normalizeError = normalizeError;
 
 var _feathersCommons = require('feathers-commons');
 
@@ -3453,29 +3095,46 @@ function promisify(method, context) {
   });
 }
 
-function errorObject(e) {
+function normalizeError(e) {
   var result = {};
+
   Object.getOwnPropertyNames(e).forEach(function (key) {
     return result[key] = e[key];
   });
+
+  if (process.env.NODE_ENV === 'production') {
+    delete result.stack;
+  }
+
+  delete result.hook;
+
   return result;
 }
-},{"feathers-commons":9}],32:[function(require,module,exports){
+}).call(this,require('_process'))
+},{"_process":40,"feathers-commons":9}],28:[function(require,module,exports){
 arguments[4][16][0].apply(exports,arguments)
-},{"./lib/client":33,"dup":16}],33:[function(require,module,exports){
+},{"./lib/client":29,"dup":16}],29:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
-exports.default = function (connection) {
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+exports.default = function (connection, options) {
   if (!connection) {
     throw new Error('Socket.io connection needs to be provided');
   }
 
   var defaultService = function defaultService(name) {
-    return new _client2.default({ name: name, connection: connection, method: 'emit' });
+    var settings = _extends({}, options, {
+      name: name,
+      connection: connection,
+      method: 'emit'
+    });
+
+    return new _client2.default(settings);
   };
 
   var initialize = function initialize() {
@@ -3500,9 +3159,9 @@ var _client2 = _interopRequireDefault(_client);
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 module.exports = exports['default'];
-},{"feathers-socket-commons/client":29}],34:[function(require,module,exports){
+},{"feathers-socket-commons/client":25}],30:[function(require,module,exports){
 arguments[4][4][0].apply(exports,arguments)
-},{"./lib/client/index":37,"dup":4}],35:[function(require,module,exports){
+},{"./lib/client/index":33,"dup":4}],31:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3585,7 +3244,7 @@ exports.default = {
     return this.services[location] = protoService;
   },
   use: function use(location) {
-    var service = undefined,
+    var service = void 0,
         middleware = Array.from(arguments).slice(1).reduce(function (middleware, arg) {
       if (typeof arg === 'function') {
         middleware[service ? 'after' : 'before'].push(arg);
@@ -3607,7 +3266,7 @@ exports.default = {
     };
 
     // Check for service (any object with at least one service method)
-    if (hasMethod(['handle', 'set']) || !hasMethod(this.methods)) {
+    if (hasMethod(['handle', 'set']) || !hasMethod(this.methods.concat('setup'))) {
       return this._super.apply(this, arguments);
     }
 
@@ -3654,7 +3313,7 @@ exports.default = {
   }
 };
 module.exports = exports['default'];
-},{"./mixins/index":40,"debug":1,"feathers-commons":9,"uberproto":47}],36:[function(require,module,exports){
+},{"./mixins/index":36,"debug":1,"feathers-commons":9,"uberproto":47}],32:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3708,7 +3367,7 @@ var _uberproto2 = _interopRequireDefault(_uberproto);
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 module.exports = exports['default'];
-},{"events":3,"uberproto":47}],37:[function(require,module,exports){
+},{"events":3,"uberproto":47}],33:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3730,9 +3389,9 @@ function createApplication() {
   return (0, _feathers2.default)(_express2.default.apply(undefined, arguments));
 }
 
-createApplication.version = require('../../package.json').version;
+createApplication.version = '2.0.1';
 module.exports = exports['default'];
-},{"../../package.json":43,"../feathers":38,"./express":36}],38:[function(require,module,exports){
+},{"../feathers":34,"./express":32}],34:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3762,7 +3421,7 @@ function createApplication(app) {
   return app;
 }
 module.exports = exports['default'];
-},{"./application":35,"uberproto":47}],39:[function(require,module,exports){
+},{"./application":31,"uberproto":47}],35:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3838,7 +3497,7 @@ function upperCase(name) {
 }
 
 module.exports = exports['default'];
-},{"events":3,"feathers-commons":9,"rubberduck":45}],40:[function(require,module,exports){
+},{"events":3,"feathers-commons":9,"rubberduck":45}],36:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3859,7 +3518,7 @@ exports.default = function () {
 };
 
 module.exports = exports['default'];
-},{"./event":39,"./normalizer":41,"./promise":42}],41:[function(require,module,exports){
+},{"./event":35,"./normalizer":37,"./promise":38}],37:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3889,7 +3548,7 @@ exports.default = function (service) {
 var _feathersCommons = require('feathers-commons');
 
 module.exports = exports['default'];
-},{"feathers-commons":9}],42:[function(require,module,exports){
+},{"feathers-commons":9}],38:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3933,152 +3592,7 @@ function wrapper() {
 }
 
 module.exports = exports['default'];
-},{}],43:[function(require,module,exports){
-module.exports={
-  "_args": [
-    [
-      "feathers@^2.0.0",
-      "/Users/beematik/Repos/feathers/feathers-client"
-    ]
-  ],
-  "_from": "feathers@>=2.0.0 <3.0.0",
-  "_id": "feathers@2.0.0",
-  "_inCache": true,
-  "_installable": true,
-  "_location": "/feathers",
-  "_nodeVersion": "5.6.0",
-  "_npmOperationalInternal": {
-    "host": "packages-5-east.internal.npmjs.com",
-    "tmp": "tmp/feathers-2.0.0.tgz_1456123682541_0.35575417522341013"
-  },
-  "_npmUser": {
-    "email": "daff@neyeon.de",
-    "name": "daffl"
-  },
-  "_npmVersion": "3.6.0",
-  "_phantomChildren": {},
-  "_requested": {
-    "name": "feathers",
-    "raw": "feathers@^2.0.0",
-    "rawSpec": "^2.0.0",
-    "scope": null,
-    "spec": ">=2.0.0 <3.0.0",
-    "type": "range"
-  },
-  "_requiredBy": [
-    "/"
-  ],
-  "_resolved": "https://registry.npmjs.org/feathers/-/feathers-2.0.0.tgz",
-  "_shasum": "0ff06df8fd72271c25e6d1b4117b9e7721cfe370",
-  "_shrinkwrap": null,
-  "_spec": "feathers@^2.0.0",
-  "_where": "/Users/beematik/Repos/feathers/feathers-client",
-  "author": {
-    "email": "hello@feathersjs.com",
-    "name": "Feathers",
-    "url": "http://feathersjs.com"
-  },
-  "browser": {
-    "./lib/index": "./lib/client/index"
-  },
-  "bugs": {
-    "url": "https://github.com/feathersjs/feathers/issues"
-  },
-  "contributors": [
-    {
-      "email": "e.kryski@gmail.com",
-      "name": "Eric Kryski",
-      "url": "http://erickryski.com"
-    },
-    {
-      "email": "daff@neyeon.de",
-      "name": "David Luecke",
-      "url": "http://neyeon.com"
-    }
-  ],
-  "dependencies": {
-    "babel-polyfill": "^6.3.14",
-    "debug": "^2.1.1",
-    "events": "^1.1.0",
-    "express": "^4.12.3",
-    "feathers-commons": "^0.7.0",
-    "rubberduck": "^1.0.0",
-    "uberproto": "^1.2.0"
-  },
-  "description": "Build Better APIs, Faster than Ever.",
-  "devDependencies": {
-    "babel-cli": "^6.3.17",
-    "babel-core": "^6.3.26",
-    "babel-plugin-add-module-exports": "^0.1.2",
-    "babel-preset-es2015": "^6.3.13",
-    "body-parser": "^1.13.2",
-    "feathers-client": "^0.5.1",
-    "feathers-rest": "^1.1.0",
-    "feathers-socketio": "^1.1.0",
-    "istanbul": "^0.4.0",
-    "jshint": "^2.6.3",
-    "mocha": "^2.2.0",
-    "nsp": "^2.2.0",
-    "q": "^1.0.1",
-    "request": "^2.x",
-    "socket.io-client": "^1.0.0"
-  },
-  "directories": {
-    "lib": "lib"
-  },
-  "dist": {
-    "shasum": "0ff06df8fd72271c25e6d1b4117b9e7721cfe370",
-    "tarball": "http://registry.npmjs.org/feathers/-/feathers-2.0.0.tgz"
-  },
-  "engines": {
-    "node": ">= 0.10.0",
-    "npm": ">= 1.3.0"
-  },
-  "gitHead": "5a05f04928c920761e00fb564a0cec6a65272359",
-  "homepage": "http://feathersjs.com",
-  "keywords": [
-    "feathers",
-    "REST",
-    "socket.io",
-    "realtime"
-  ],
-  "license": "MIT",
-  "main": "lib/index",
-  "maintainers": [
-    {
-      "email": "e.kryski@gmail.com",
-      "name": "ekryski"
-    },
-    {
-      "email": "daff@neyeon.de",
-      "name": "daffl"
-    }
-  ],
-  "name": "feathers",
-  "optionalDependencies": {},
-  "readme": "ERROR: No README data found!",
-  "repository": {
-    "type": "git",
-    "url": "git://github.com/feathersjs/feathers.git"
-  },
-  "scripts": {
-    "compile": "rm -rf lib/ && babel -d lib/ src/",
-    "coverage": "istanbul cover _mocha -- test/ --recursive",
-    "jshint": "jshint src/. test/. --config",
-    "mocha": "mocha test/ --compilers js:babel-core/register --recursive",
-    "prepublish": "npm run compile",
-    "publish": "git push origin && git push origin --tags",
-    "release:major": "npm version major && npm publish",
-    "release:minor": "npm version minor && npm publish",
-    "release:patch": "npm version patch && npm publish",
-    "release:prerelease": "npm version prerelease && npm publish --tag pegasus",
-    "test": "npm run compile && npm run jshint && npm run mocha && nsp check",
-    "watch": "babel --watch -d lib/ src/"
-  },
-  "version": "2.0.0"
-}
-
-},{}],44:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 /**
  * Helpers.
  */
@@ -4204,6 +3718,612 @@ function plural(ms, n, name) {
   if (ms < n * 1.5) return Math.floor(ms / n) + ' ' + name;
   return Math.ceil(ms / n) + ' ' + name + 's';
 }
+
+},{}],40:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+// cached from whatever global is present so that test runners that stub it
+// don't break things.  But we need to wrap it in a try catch in case it is
+// wrapped in strict mode code which doesn't define any globals.  It's inside a
+// function because try/catches deoptimize in certain engines.
+
+var cachedSetTimeout;
+var cachedClearTimeout;
+
+(function () {
+  try {
+    cachedSetTimeout = setTimeout;
+  } catch (e) {
+    cachedSetTimeout = function () {
+      throw new Error('setTimeout is not defined');
+    }
+  }
+  try {
+    cachedClearTimeout = clearTimeout;
+  } catch (e) {
+    cachedClearTimeout = function () {
+      throw new Error('clearTimeout is not defined');
+    }
+  }
+} ())
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    if (!draining || !currentQueue) {
+        return;
+    }
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = cachedSetTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    cachedClearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        cachedSetTimeout(drainQueue, 0);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+};
+
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+process.umask = function() { return 0; };
+
+},{}],41:[function(require,module,exports){
+'use strict';
+
+var Stringify = require('./stringify');
+var Parse = require('./parse');
+
+module.exports = {
+    stringify: Stringify,
+    parse: Parse
+};
+
+},{"./parse":42,"./stringify":43}],42:[function(require,module,exports){
+'use strict';
+
+var Utils = require('./utils');
+
+var defaults = {
+    delimiter: '&',
+    depth: 5,
+    arrayLimit: 20,
+    parameterLimit: 1000,
+    strictNullHandling: false,
+    plainObjects: false,
+    allowPrototypes: false,
+    allowDots: false,
+    decoder: Utils.decode
+};
+
+var parseValues = function parseValues(str, options) {
+    var obj = {};
+    var parts = str.split(options.delimiter, options.parameterLimit === Infinity ? undefined : options.parameterLimit);
+
+    for (var i = 0; i < parts.length; ++i) {
+        var part = parts[i];
+        var pos = part.indexOf(']=') === -1 ? part.indexOf('=') : part.indexOf(']=') + 1;
+
+        if (pos === -1) {
+            obj[options.decoder(part)] = '';
+
+            if (options.strictNullHandling) {
+                obj[options.decoder(part)] = null;
+            }
+        } else {
+            var key = options.decoder(part.slice(0, pos));
+            var val = options.decoder(part.slice(pos + 1));
+
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                obj[key] = [].concat(obj[key]).concat(val);
+            } else {
+                obj[key] = val;
+            }
+        }
+    }
+
+    return obj;
+};
+
+var parseObject = function parseObject(chain, val, options) {
+    if (!chain.length) {
+        return val;
+    }
+
+    var root = chain.shift();
+
+    var obj;
+    if (root === '[]') {
+        obj = [];
+        obj = obj.concat(parseObject(chain, val, options));
+    } else {
+        obj = options.plainObjects ? Object.create(null) : {};
+        var cleanRoot = root[0] === '[' && root[root.length - 1] === ']' ? root.slice(1, root.length - 1) : root;
+        var index = parseInt(cleanRoot, 10);
+        if (
+            !isNaN(index) &&
+            root !== cleanRoot &&
+            String(index) === cleanRoot &&
+            index >= 0 &&
+            (options.parseArrays && index <= options.arrayLimit)
+        ) {
+            obj = [];
+            obj[index] = parseObject(chain, val, options);
+        } else {
+            obj[cleanRoot] = parseObject(chain, val, options);
+        }
+    }
+
+    return obj;
+};
+
+var parseKeys = function parseKeys(givenKey, val, options) {
+    if (!givenKey) {
+        return;
+    }
+
+    // Transform dot notation to bracket notation
+    var key = options.allowDots ? givenKey.replace(/\.([^\.\[]+)/g, '[$1]') : givenKey;
+
+    // The regex chunks
+
+    var parent = /^([^\[\]]*)/;
+    var child = /(\[[^\[\]]*\])/g;
+
+    // Get the parent
+
+    var segment = parent.exec(key);
+
+    // Stash the parent if it exists
+
+    var keys = [];
+    if (segment[1]) {
+        // If we aren't using plain objects, optionally prefix keys
+        // that would overwrite object prototype properties
+        if (!options.plainObjects && Object.prototype.hasOwnProperty(segment[1])) {
+            if (!options.allowPrototypes) {
+                return;
+            }
+        }
+
+        keys.push(segment[1]);
+    }
+
+    // Loop through children appending to the array until we hit depth
+
+    var i = 0;
+    while ((segment = child.exec(key)) !== null && i < options.depth) {
+        i += 1;
+        if (!options.plainObjects && Object.prototype.hasOwnProperty(segment[1].replace(/\[|\]/g, ''))) {
+            if (!options.allowPrototypes) {
+                continue;
+            }
+        }
+        keys.push(segment[1]);
+    }
+
+    // If there's a remainder, just add whatever is left
+
+    if (segment) {
+        keys.push('[' + key.slice(segment.index) + ']');
+    }
+
+    return parseObject(keys, val, options);
+};
+
+module.exports = function (str, opts) {
+    var options = opts || {};
+
+    if (options.decoder !== null && options.decoder !== undefined && typeof options.decoder !== 'function') {
+        throw new TypeError('Decoder has to be a function.');
+    }
+
+    options.delimiter = typeof options.delimiter === 'string' || Utils.isRegExp(options.delimiter) ? options.delimiter : defaults.delimiter;
+    options.depth = typeof options.depth === 'number' ? options.depth : defaults.depth;
+    options.arrayLimit = typeof options.arrayLimit === 'number' ? options.arrayLimit : defaults.arrayLimit;
+    options.parseArrays = options.parseArrays !== false;
+    options.decoder = typeof options.decoder === 'function' ? options.decoder : defaults.decoder;
+    options.allowDots = typeof options.allowDots === 'boolean' ? options.allowDots : defaults.allowDots;
+    options.plainObjects = typeof options.plainObjects === 'boolean' ? options.plainObjects : defaults.plainObjects;
+    options.allowPrototypes = typeof options.allowPrototypes === 'boolean' ? options.allowPrototypes : defaults.allowPrototypes;
+    options.parameterLimit = typeof options.parameterLimit === 'number' ? options.parameterLimit : defaults.parameterLimit;
+    options.strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : defaults.strictNullHandling;
+
+    if (str === '' || str === null || typeof str === 'undefined') {
+        return options.plainObjects ? Object.create(null) : {};
+    }
+
+    var tempObj = typeof str === 'string' ? parseValues(str, options) : str;
+    var obj = options.plainObjects ? Object.create(null) : {};
+
+    // Iterate over the keys and setup the new object
+
+    var keys = Object.keys(tempObj);
+    for (var i = 0; i < keys.length; ++i) {
+        var key = keys[i];
+        var newObj = parseKeys(key, tempObj[key], options);
+        obj = Utils.merge(obj, newObj, options);
+    }
+
+    return Utils.compact(obj);
+};
+
+},{"./utils":44}],43:[function(require,module,exports){
+'use strict';
+
+var Utils = require('./utils');
+
+var arrayPrefixGenerators = {
+    brackets: function brackets(prefix) {
+        return prefix + '[]';
+    },
+    indices: function indices(prefix, key) {
+        return prefix + '[' + key + ']';
+    },
+    repeat: function repeat(prefix) {
+        return prefix;
+    }
+};
+
+var defaults = {
+    delimiter: '&',
+    strictNullHandling: false,
+    skipNulls: false,
+    encode: true,
+    encoder: Utils.encode
+};
+
+var stringify = function stringify(object, prefix, generateArrayPrefix, strictNullHandling, skipNulls, encoder, filter, sort, allowDots) {
+    var obj = object;
+    if (typeof filter === 'function') {
+        obj = filter(prefix, obj);
+    } else if (obj instanceof Date) {
+        obj = obj.toISOString();
+    } else if (obj === null) {
+        if (strictNullHandling) {
+            return encoder ? encoder(prefix) : prefix;
+        }
+
+        obj = '';
+    }
+
+    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean' || Utils.isBuffer(obj)) {
+        if (encoder) {
+            return [encoder(prefix) + '=' + encoder(obj)];
+        }
+        return [prefix + '=' + String(obj)];
+    }
+
+    var values = [];
+
+    if (typeof obj === 'undefined') {
+        return values;
+    }
+
+    var objKeys;
+    if (Array.isArray(filter)) {
+        objKeys = filter;
+    } else {
+        var keys = Object.keys(obj);
+        objKeys = sort ? keys.sort(sort) : keys;
+    }
+
+    for (var i = 0; i < objKeys.length; ++i) {
+        var key = objKeys[i];
+
+        if (skipNulls && obj[key] === null) {
+            continue;
+        }
+
+        if (Array.isArray(obj)) {
+            values = values.concat(stringify(obj[key], generateArrayPrefix(prefix, key), generateArrayPrefix, strictNullHandling, skipNulls, encoder, filter, sort, allowDots));
+        } else {
+            values = values.concat(stringify(obj[key], prefix + (allowDots ? '.' + key : '[' + key + ']'), generateArrayPrefix, strictNullHandling, skipNulls, encoder, filter, sort, allowDots));
+        }
+    }
+
+    return values;
+};
+
+module.exports = function (object, opts) {
+    var obj = object;
+    var options = opts || {};
+    var delimiter = typeof options.delimiter === 'undefined' ? defaults.delimiter : options.delimiter;
+    var strictNullHandling = typeof options.strictNullHandling === 'boolean' ? options.strictNullHandling : defaults.strictNullHandling;
+    var skipNulls = typeof options.skipNulls === 'boolean' ? options.skipNulls : defaults.skipNulls;
+    var encode = typeof options.encode === 'boolean' ? options.encode : defaults.encode;
+    var encoder = encode ? (typeof options.encoder === 'function' ? options.encoder : defaults.encoder) : null;
+    var sort = typeof options.sort === 'function' ? options.sort : null;
+    var allowDots = typeof options.allowDots === 'undefined' ? false : options.allowDots;
+    var objKeys;
+    var filter;
+
+    if (options.encoder !== null && options.encoder !== undefined && typeof options.encoder !== 'function') {
+        throw new TypeError('Encoder has to be a function.');
+    }
+
+    if (typeof options.filter === 'function') {
+        filter = options.filter;
+        obj = filter('', obj);
+    } else if (Array.isArray(options.filter)) {
+        objKeys = filter = options.filter;
+    }
+
+    var keys = [];
+
+    if (typeof obj !== 'object' || obj === null) {
+        return '';
+    }
+
+    var arrayFormat;
+    if (options.arrayFormat in arrayPrefixGenerators) {
+        arrayFormat = options.arrayFormat;
+    } else if ('indices' in options) {
+        arrayFormat = options.indices ? 'indices' : 'repeat';
+    } else {
+        arrayFormat = 'indices';
+    }
+
+    var generateArrayPrefix = arrayPrefixGenerators[arrayFormat];
+
+    if (!objKeys) {
+        objKeys = Object.keys(obj);
+    }
+
+    if (sort) {
+        objKeys.sort(sort);
+    }
+
+    for (var i = 0; i < objKeys.length; ++i) {
+        var key = objKeys[i];
+
+        if (skipNulls && obj[key] === null) {
+            continue;
+        }
+
+        keys = keys.concat(stringify(obj[key], key, generateArrayPrefix, strictNullHandling, skipNulls, encoder, filter, sort, allowDots));
+    }
+
+    return keys.join(delimiter);
+};
+
+},{"./utils":44}],44:[function(require,module,exports){
+'use strict';
+
+var hexTable = (function () {
+    var array = new Array(256);
+    for (var i = 0; i < 256; ++i) {
+        array[i] = '%' + ((i < 16 ? '0' : '') + i.toString(16)).toUpperCase();
+    }
+
+    return array;
+}());
+
+exports.arrayToObject = function (source, options) {
+    var obj = options.plainObjects ? Object.create(null) : {};
+    for (var i = 0; i < source.length; ++i) {
+        if (typeof source[i] !== 'undefined') {
+            obj[i] = source[i];
+        }
+    }
+
+    return obj;
+};
+
+exports.merge = function (target, source, options) {
+    if (!source) {
+        return target;
+    }
+
+    if (typeof source !== 'object') {
+        if (Array.isArray(target)) {
+            target.push(source);
+        } else if (typeof target === 'object') {
+            target[source] = true;
+        } else {
+            return [target, source];
+        }
+
+        return target;
+    }
+
+    if (typeof target !== 'object') {
+        return [target].concat(source);
+    }
+
+    var mergeTarget = target;
+    if (Array.isArray(target) && !Array.isArray(source)) {
+        mergeTarget = exports.arrayToObject(target, options);
+    }
+
+    return Object.keys(source).reduce(function (acc, key) {
+        var value = source[key];
+
+        if (Object.prototype.hasOwnProperty.call(acc, key)) {
+            acc[key] = exports.merge(acc[key], value, options);
+        } else {
+            acc[key] = value;
+        }
+        return acc;
+    }, mergeTarget);
+};
+
+exports.decode = function (str) {
+    try {
+        return decodeURIComponent(str.replace(/\+/g, ' '));
+    } catch (e) {
+        return str;
+    }
+};
+
+exports.encode = function (str) {
+    // This code was originally written by Brian White (mscdex) for the io.js core querystring library.
+    // It has been adapted here for stricter adherence to RFC 3986
+    if (str.length === 0) {
+        return str;
+    }
+
+    var string = typeof str === 'string' ? str : String(str);
+
+    var out = '';
+    for (var i = 0; i < string.length; ++i) {
+        var c = string.charCodeAt(i);
+
+        if (
+            c === 0x2D || // -
+            c === 0x2E || // .
+            c === 0x5F || // _
+            c === 0x7E || // ~
+            (c >= 0x30 && c <= 0x39) || // 0-9
+            (c >= 0x41 && c <= 0x5A) || // a-z
+            (c >= 0x61 && c <= 0x7A) // A-Z
+        ) {
+            out += string.charAt(i);
+            continue;
+        }
+
+        if (c < 0x80) {
+            out = out + hexTable[c];
+            continue;
+        }
+
+        if (c < 0x800) {
+            out = out + (hexTable[0xC0 | (c >> 6)] + hexTable[0x80 | (c & 0x3F)]);
+            continue;
+        }
+
+        if (c < 0xD800 || c >= 0xE000) {
+            out = out + (hexTable[0xE0 | (c >> 12)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)]);
+            continue;
+        }
+
+        i += 1;
+        c = 0x10000 + (((c & 0x3FF) << 10) | (string.charCodeAt(i) & 0x3FF));
+        out += hexTable[0xF0 | (c >> 18)] + hexTable[0x80 | ((c >> 12) & 0x3F)] + hexTable[0x80 | ((c >> 6) & 0x3F)] + hexTable[0x80 | (c & 0x3F)];
+    }
+
+    return out;
+};
+
+exports.compact = function (obj, references) {
+    if (typeof obj !== 'object' || obj === null) {
+        return obj;
+    }
+
+    var refs = references || [];
+    var lookup = refs.indexOf(obj);
+    if (lookup !== -1) {
+        return refs[lookup];
+    }
+
+    refs.push(obj);
+
+    if (Array.isArray(obj)) {
+        var compacted = [];
+
+        for (var i = 0; i < obj.length; ++i) {
+            if (obj[i] && typeof obj[i] === 'object') {
+                compacted.push(exports.compact(obj[i], refs));
+            } else if (typeof obj[i] !== 'undefined') {
+                compacted.push(obj[i]);
+            }
+        }
+
+        return compacted;
+    }
+
+    var keys = Object.keys(obj);
+    for (var j = 0; j < keys.length; ++j) {
+        var key = keys[j];
+        obj[key] = exports.compact(obj[key], refs);
+    }
+
+    return obj;
+};
+
+exports.isRegExp = function (obj) {
+    return Object.prototype.toString.call(obj) === '[object RegExp]';
+};
+
+exports.isBuffer = function (obj) {
+    if (obj === null || typeof obj === 'undefined') {
+        return false;
+    }
+
+    return !!(obj.constructor && obj.constructor.isBuffer && obj.constructor.isBuffer(obj));
+};
 
 },{}],45:[function(require,module,exports){
 var events = require('events');
@@ -4508,11 +4628,7 @@ var _client = require('feathers/client');
 
 var _client2 = _interopRequireDefault(_client);
 
-var _feathersHooks = require('feathers-hooks');
-
-var _feathersHooks2 = _interopRequireDefault(_feathersHooks);
-
-var _client3 = require('feathers-authentication/client');
+var _client3 = require('feathers-rest/client');
 
 var _client4 = _interopRequireDefault(_client3);
 
@@ -4524,16 +4640,20 @@ var _client7 = require('feathers-primus/client');
 
 var _client8 = _interopRequireDefault(_client7);
 
-var _client9 = require('feathers-rest/client');
+var _feathersHooks = require('feathers-hooks');
+
+var _feathersHooks2 = _interopRequireDefault(_feathersHooks);
+
+var _client9 = require('feathers-authentication/client');
 
 var _client10 = _interopRequireDefault(_client9);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-Object.assign(_client2.default, { socketio: _client6.default, primus: _client8.default, rest: _client10.default, hooks: _feathersHooks2.default, authentication: _client4.default });
+Object.assign(_client2.default, { socketio: _client6.default, primus: _client8.default, rest: _client4.default, hooks: _feathersHooks2.default, authentication: _client10.default });
 
 exports.default = _client2.default;
 module.exports = exports['default'];
 
-},{"feathers-authentication/client":4,"feathers-hooks":15,"feathers-primus/client":16,"feathers-rest/client":18,"feathers-socketio/client":32,"feathers/client":34}]},{},[48])(48)
+},{"feathers-authentication/client":4,"feathers-hooks":15,"feathers-primus/client":16,"feathers-rest/client":18,"feathers-socketio/client":28,"feathers/client":30}]},{},[48])(48)
 });
