@@ -761,6 +761,8 @@ exports.default = function () {
           endPoint = config.facebookEndpoint;
         } else if (options.type === 'google') {
           endPoint = config.googleEndpoint;
+        } else if (options.type === 'apple') {
+          endPoint = config.appleEndpoint;
         } else {
           throw new Error('Unsupported authentication \'type\': ' + options.type);
         }
@@ -837,7 +839,8 @@ var defaults = {
   localEndpoint: '/auth/local',
   tokenEndpoint: '/auth/token',
   facebookEndpoint: '/auth/facebook',
-  googleEndpoint: '/auth/google'
+  googleEndpoint: '/auth/google',
+  appleEndpoint: '/auth/apple'
 };
 
 module.exports = exports['default'];
